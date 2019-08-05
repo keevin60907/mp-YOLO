@@ -1,7 +1,13 @@
 '''
 Panorama pictures convert to stereo projection
+Usage:
+    $ pyhton3 stereo.py <file_path> <d>
+    
+    file_path(str): the pano pic file
+    d(float)      : d in (0..1.]
 '''
-from math import pi, atan, cos, sin
+import sys
+from math import pi, atan, cos, sin, acos, sqrt
 from scipy.interpolate import RectBivariateSpline
 import numpy as np
 import cv2
@@ -18,9 +24,9 @@ def pano2stereo(pic):
     # ToDo(kevin): d is currently fixed to 1, could you generalize it to any d belongs to [0, 1]
     '''
     input_img = cv2.imread(pic)
-    d = 1.
+    d = float(sys.argv[2])
     for face in range(4):
-        print('generating face ', face)
+        print('generating face', face)
         height = input_img.shape[0]
         width = input_img.shape[1]
         delta_rad = 2*pi / width  # get the rads of each pixel
@@ -40,8 +46,18 @@ def pano2stereo(pic):
                 # longitude (phi) and latitude (theta) is the angular information from center of the sphere
                 # below formula is the inversion of eq(1) at d=1 in Wenyan Yang's m-p YOLO paper.
                 # ToDo(kevin): d is currently fixed to 1, could you generalize it to any d belongs to [0, 1]
-                phi = atan(4*xp/(4-xp**2)) if xp != xp_max else np.pi/2
-                theta = atan(4*yp/(4-yp**2)) if yp != yp_max else np.pi/2
+                # phi = atan(4*xp/(4-xp**2)) if xp != xp_max else np.pi/2
+                # theta = atan(4*yp/(4-yp**2)) if yp != yp_max else np.pi/2
+                def projection_angle(x, d):
+                    numerator = -2*d*x**2 + 2*(d+1)*sqrt((1-d**2)*x**2+(d+1)**2)
+                    denominator = 2*(x**2+(d+1)**2)
+                    return acos(numerator/denominator)
+                phi = projection_angle(xp, d) if xp != xp_max else pi/2
+                if xp < 0:
+                    phi = -1*phi
+                theta = projection_angle(yp, d) if yp != yp_max else pi/2
+                if yp < 0:
+                    theta = -1*theta
 
                 pano_x = width/2.0 + (phi/delta_rad)
                 pano_y = height/2.0 + (theta/delta_rad)
@@ -50,7 +66,7 @@ def pano2stereo(pic):
                 output_img[i, j, 1] = interpolate_1([pano_y], [pano_x])
                 output_img[i, j, 2] = interpolate_2([pano_y], [pano_x])
 
-        cv2.imwrite('face_'+str(face)+'.jpg', output_img)
+        cv2.imwrite('face_'+str(face)+'_'+str(d)+'.jpg', output_img)
         # change the projection face for the origin panorama
         input_img = np.concatenate(
             (input_img[:, int(width/4):, :], input_img[:, :int(width/4), :]), axis=1)
@@ -60,7 +76,7 @@ def main():
     '''
     just for testing...
     '''
-    pano2stereo('projection example/example.jpg')
+    pano2stereo(sys.argv[1])
 
 if __name__ == '__main__':
     main()
