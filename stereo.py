@@ -7,7 +7,7 @@ Usage:
     d(float)      : d in (0..1.]
 '''
 import sys
-from math import pi, atan, cos, sin, acos, sqrt
+from math import pi, atan, cos, sin, acos, sqrt, tan
 from scipy.interpolate import RectBivariateSpline
 import numpy as np
 import cv2
@@ -71,12 +71,48 @@ def pano2stereo(pic):
         input_img = np.concatenate(
             (input_img[:, int(width/4):, :], input_img[:, :int(width/4), :]), axis=1)
 
+def stereo2pano(pic):
+    input_img = cv2.imread(pic)
+    d = 1.
+    height = input_img.shape[0]
+    width = input_img.shape[1]
+    delta_rad = pi / 2
+    output_img = np.zeros((height, height, 3))
+
+    xp_domain = np.arange(-1., 1., 2./height) + 1.0/height
+    yp_domain = np.arange(-1., 1., 2./height) + 1.0/height
+
+    # interpolate function for each channel which is provided by scipy
+    interpolate_0 = RectBivariateSpline(np.arange(height), np.arange(width), input_img[:, :, 0])
+    interpolate_1 = RectBivariateSpline(np.arange(height), np.arange(width), input_img[:, :, 1])
+    interpolate_2 = RectBivariateSpline(np.arange(height), np.arange(width), input_img[:, :, 2])
+
+    for j, xp in enumerate(xp_domain):
+        for i, yp in enumerate(yp_domain):
+            alpha = tan(xp*delta_rad)
+            beta = tan(yp*delta_rad)
+
+            if alpha < 0:
+                stereo_x = width/2.0 + width/4.0 * (-2/alpha - 2*sqrt(1/alpha**2+1))
+            else:
+                stereo_x = width/2.0 + width/4.0 * (-2/alpha + 2*sqrt(1/alpha**2+1))
+            if beta < 0:
+                stereo_y = height/2.0 + height/4.0 * (-2/beta - 2*sqrt(1/beta**2+1))
+            else:
+                stereo_y = height/2.0 + height/4.0 * (-2/beta + 2*sqrt(1/beta**2+1))
+
+            output_img[i, j, 0] = interpolate_0([stereo_y], [stereo_x])
+            output_img[i, j, 1] = interpolate_1([stereo_y], [stereo_x])
+            output_img[i, j, 2] = interpolate_2([stereo_y], [stereo_x])
+
+    cv2.imwrite('pano'+'.jpg', output_img)
 
 def main():
     '''
     just for testing...
     '''
-    pano2stereo(sys.argv[1])
+    #pano2stereo(sys.argv[1])
+    stereo2pano(sys.argv[1])
 
 if __name__ == '__main__':
     main()
