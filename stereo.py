@@ -1,6 +1,7 @@
 '''
 Panorama pictures convert to stereo projection
 '''
+import sys
 from math import pi, atan, cos, sin
 from scipy.interpolate import RectBivariateSpline
 import numpy as np
@@ -40,7 +41,7 @@ def pano2stereo(pic):
                 longitude = 2*atan(pixel_x[i, j])
                 phi = 2*sin(longitude) / (1+cos(longitude))
 
-                latitude = atan(pixel_y[i, j])
+                latitude = 1.5*atan(pixel_y[i, j])
                 theta = 2*sin(latitude) / (1+cos(latitude))
 
                 pano_x = width/2.0 + (phi/rads)
@@ -58,7 +59,7 @@ def main():
     '''
     just for testing...
     '''
-    pano2stereo('example.jpg')
+    pano2stereo(sys.argv[1])
 
 if __name__ == '__main__':
     main()
