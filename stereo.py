@@ -15,36 +15,36 @@ def pano2stereo(pic):
     Args:
         pic(str): the path of input picture
 
+    # ToDo(kevin): d is currently fixed to 1, could you generalize it to any d belongs to [0, 1]
     '''
     input_img = cv2.imread(pic)
+    d = 1.
     for face in range(4):
+        print('generating face ', face)
         height = input_img.shape[0]
         width = input_img.shape[1]
-        rads = 2*pi / width # get the rads of each pixel
+        delta_rad = 2*pi / width  # get the rads of each pixel
         output_img = np.zeros((height, height, 3))
-
-        img_x = np.arange(-1.0, 1.0, 2.0/height) + 1.0/height
-        img_y = np.arange(-1.0, 1.0, 2.0/height) + 1.0/height
-        # (pixel_x[i, j], pixel_y[i, j]) means the point[i, j] = (x, y)
-        pixel_x, pixel_y = np.meshgrid(img_x, img_y)
+        xp_max = (1+d) / d  # in the case of d=1, it is 2
+        yp_max = (1+d) / d  # in the case of d=1, it is 2
+        xp_domain = xp_max*(np.arange(-1., 1., 2./height) + 1.0/height)
+        yp_domain = yp_max*(np.arange(-1., 1., 2./height) + 1.0/height)
 
         # interpolate function for each channel which is provided by scipy
         interpolate_0 = RectBivariateSpline(np.arange(height), np.arange(width), input_img[:, :, 0])
         interpolate_1 = RectBivariateSpline(np.arange(height), np.arange(width), input_img[:, :, 1])
         interpolate_2 = RectBivariateSpline(np.arange(height), np.arange(width), input_img[:, :, 2])
 
-        for i in range(height):
-            for j in range(height):
-                # longitude and latitude is the anular information from center of the sphere
-                # phi and theta is the angle measure from the position (d = 1)
-                longitude = 2*atan(pixel_x[i, j])
-                phi = 2*sin(longitude) / (1+cos(longitude))
+        for j, xp in enumerate(xp_domain):
+            for i, yp in enumerate(yp_domain):
+                # longitude (phi) and latitude (theta) is the angular information from center of the sphere
+                # below formula is the inversion of eq(1) at d=1 in Wenyan Yang's m-p YOLO paper.
+                # ToDo(kevin): d is currently fixed to 1, could you generalize it to any d belongs to [0, 1]
+                phi = atan(4*xp/(4-xp**2)) if xp != xp_max else np.pi/2
+                theta = atan(4*yp/(4-yp**2)) if yp != yp_max else np.pi/2
 
-                latitude = atan(pixel_y[i, j])
-                theta = 2*sin(latitude) / (1+cos(latitude))
-
-                pano_x = width/2.0 + (phi/rads)
-                pano_y = height/2.0 + (theta/rads)
+                pano_x = width/2.0 + (phi/delta_rad)
+                pano_y = height/2.0 + (theta/delta_rad)
 
                 output_img[i, j, 0] = interpolate_0([pano_y], [pano_x])
                 output_img[i, j, 1] = interpolate_1([pano_y], [pano_x])
@@ -54,11 +54,13 @@ def pano2stereo(pic):
         # change the projection face for the origin panorama
         input_img = np.concatenate(
             (input_img[:, int(width/4):, :], input_img[:, :int(width/4), :]), axis=1)
+
+
 def main():
     '''
     just for testing...
     '''
-    pano2stereo('example.jpg')
+    pano2stereo('projection example/example.jpg')
 
 if __name__ == '__main__':
     main()
