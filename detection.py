@@ -81,9 +81,9 @@ class yolo():
             classId = np.argmax(scores)
             confidence = scores[classId]
             if confidence > CF_THRESHOLD:
-                center_x = int(detection[0] * frame_width / 2)
+                center_x = int(detection[0] * frame_width/2)
                 center_y = int(detection[1] * frame_height)
-                width = int(detection[2] * frame_width / 2)
+                width = int(detection[2] * frame_width/2)
                 height = int(detection[3] * frame_height)
                 left = int(center_x - width / 2)
                 top = int(center_y - height / 2)
@@ -106,10 +106,10 @@ class yolo():
             output_0[i, 0] += 1/2
         output_1 = self.detect(frame_1)
         for i in range(output_1.shape[0]):
-            output_0[i, 0] += 1
+            output_1[i, 0] += 1
         output_2 = self.detect(frame_2)
         for i in range(output_2.shape[0]):
-            output_0[i, 0] += 3/2
+            output_2[i, 0] += 3/2
         output_3 = self.detect(frame_3)
 
         output = np.concatenate((output_0, output_1, output_2, output_3), axis=0)
@@ -119,7 +119,6 @@ class yolo():
         output_frame = np.concatenate([frame_3, frame_1], axis=1)
         classIds, confidences, boxes, indices = self.NMS_selection(output_frame, output)
         for i in indices:
-            print(i)
             i = i[0]
             box = boxes[i]
             left = box[0]
