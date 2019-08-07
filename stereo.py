@@ -13,7 +13,7 @@ from scipy.interpolate import RectBivariateSpline
 import numpy as np
 import cv2
 
-def pano2stereo(pic, distance):
+def pano2stereo(pic, distance=1.):
     '''
     The main function for panorama picture transfrom to stereo projection,
     and save the transformed pic as 'face_0.jpg', 'face_1.jpg', 'face_2.jpg', 'face_3.jpg'.
@@ -26,6 +26,7 @@ def pano2stereo(pic, distance):
     '''
     input_img = pic
     d = distance
+    frames = []
     for face in range(4):
         print('generating face', face)
         height = input_img.shape[0]
@@ -38,9 +39,9 @@ def pano2stereo(pic, distance):
         yp_domain = yp_max*(np.arange(-1., 1., 2./height) + 1.0/height)
 
         # interpolate function for each channel which is provided by scipy
-        interpolate_0 = RectBivariateSpline(np.arange(height), np.arange(width), input_img[:, :, 0])
-        interpolate_1 = RectBivariateSpline(np.arange(height), np.arange(width), input_img[:, :, 1])
-        interpolate_2 = RectBivariateSpline(np.arange(height), np.arange(width), input_img[:, :, 2])
+        #interpolate_0 = RectBivariateSpline(np.arange(height), np.arange(width), input_img[:, :, 0])
+        #interpolate_1 = RectBivariateSpline(np.arange(height), np.arange(width), input_img[:, :, 1])
+        #interpolate_2 = RectBivariateSpline(np.arange(height), np.arange(width), input_img[:, :, 2])
 
         for j, xp in enumerate(xp_domain):
             for i, yp in enumerate(yp_domain):
@@ -62,15 +63,19 @@ def pano2stereo(pic, distance):
 
                 pano_x = width/2.0 + (phi/delta_rad)
                 pano_y = height/2.0 + (theta/delta_rad)
-
+                '''
                 output_img[i, j, 0] = interpolate_0([pano_y], [pano_x])
                 output_img[i, j, 1] = interpolate_1([pano_y], [pano_x])
                 output_img[i, j, 2] = interpolate_2([pano_y], [pano_x])
+                '''
+                output_img[i, j] = input_img[int(pano_y), int(pano_x)]
 
         cv2.imwrite('face_'+str(face)+'_'+str(d)+'.jpg', output_img)
+        frames.append(output_img)
         # change the projection face for the origin panorama
         input_img = np.concatenate(
             (input_img[:, int(width/4):, :], input_img[:, :int(width/4), :]), axis=1)
+    return frames
 
 def stereo2pano(in_pic):
     '''
@@ -109,23 +114,31 @@ def stereo2pano(in_pic):
     return output_img
 
 def realign_bbox(center_x, center_y, width, height, face):
+    def safe_atan(x):
+        if x == 2:
+            return pi/2
+        elif x == -2:
+            return -pi/2
+        else:
+            return atan(4*x/(4-x**2))
+
     xp = 4*(center_x-0.5)
-    phi = atan(4*xp/(4-xp**2))
+    phi = safe_atan(xp)
     phi = phi + face*pi/2
     if phi > 2*pi:
         phi = phi-4*pi
     center_phi = phi/(2*pi)+0.5
     
     yp = 4*(center_y-0.5)
-    theta = atan(4*yp/(4-yp**2))
+    theta = safe_atan(yp)
     center_theta = theta/pi+0.5
     
     def realign_border(center, line):
         vertex_1 = 4*(center-0.5-line/2)
         vertex_2 = 4*(center-0.5+line/2)
-        angle_1 = atan(4*vertex_1/(4-vertex_1**2))
-        angle_2 = atan(4*vertex_2/(4-vertex_2**2))
-        return np.absolute(angle_2-angle_1)
+        angle_1 = safe_atan(vertex_1)
+        angle_2 = safe_atan(vertex_2)
+        return abs(angle_2-angle_1)
 
     pano_width = realign_border(center_x, width)/(2*pi)
     pano_height = realign_border(center_y, height)/pi

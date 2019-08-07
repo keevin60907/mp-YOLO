@@ -35,8 +35,7 @@ class yolo():
         print('Model Initialization Done!')
 
     def detect(self, frame):
-        print('Yolo Detecting...')
-        blob = cv2.dnn.blobFromImage(frame, 1/255, 
+        blob = cv2.dnn.blobFromImage(np.float32(frame), 1/255, 
             self.resolution, [0, 0, 0], 1, crop=False)
         
         self.yolo.setInput(blob)
@@ -99,12 +98,13 @@ class yolo():
 
         return classIds, confidences, boxes, indices
 
-    def process_output(self, frames):
+    def process_output(self, input_img, frames):
         height = frames[0].shape[0]
         width = frames[0].shape[1]
         first_flag = True
         outputs = None
 
+        print('Yolo Detecting...')
         for face, frame in enumerate(frames):
             output = self.detect(frame)
             for i in range(output.shape[0]):
@@ -116,10 +116,9 @@ class yolo():
                 outputs = output
                 first_flag = False
 
-        #output_frame = merge_stereo(frames)
-        output_frame = cv2.imread('./merge_pano.jpg')
+        base_frame = input_img
         # need to inverse preoject
-        classIds, confidences, boxes, indices = self.NMS_selection(output_frame, outputs)
+        classIds, confidences, boxes, indices = self.NMS_selection(base_frame, outputs)
         print('Painting Bounding Boxes..')
         for i in indices:
             i = i[0]
@@ -128,19 +127,17 @@ class yolo():
             top = box[1]
             width = box[2]
             height = box[3]
-            self.drawPred(output_frame, classIds[i], confidences[i], left, top, left + width, top + height)
+            self.drawPred(base_frame, classIds[i], confidences[i], left, top, left + width, top + height)
 
-        return output_frame
+        return base_frame
 
 
 
 if __name__ == '__main__':
     myNet = yolo()
-    frame_0 = cv2.imread('./projection example/face_0_1.0.jpg')
-    frame_1 = cv2.imread('./projection example/face_1_1.0.jpg')
-    frame_2 = cv2.imread('./projection example/face_2_1.0.jpg')
-    frame_3 = cv2.imread('./projection example/face_3_1.0.jpg')
-    projections = [frame_0, frame_1, frame_2, frame_3]
 
-    output_frame = myNet.process_output(projections)
-    cv2.imwrite('./result.jpg', output_frame)
+    input_pano = cv2.imread(sys.argv[1])
+    projections = pano2stereo(input_pano)
+
+    output_frame = myNet.process_output(input_pano, projections)
+    cv2.imwrite(sys.argv[2], output_frame)
