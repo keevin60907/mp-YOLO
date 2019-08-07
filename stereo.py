@@ -7,12 +7,13 @@ Usage:
     d(float)      : d in (0..1.]
 '''
 import sys
+import argparse
 from math import pi, atan, cos, sin, acos, sqrt, tan
 from scipy.interpolate import RectBivariateSpline
 import numpy as np
 import cv2
 
-def pano2stereo(pic):
+def pano2stereo(pic, distance):
     '''
     The main function for panorama picture transfrom to stereo projection,
     and save the transformed pic as 'face_0.jpg', 'face_1.jpg', 'face_2.jpg', 'face_3.jpg'.
@@ -23,8 +24,8 @@ def pano2stereo(pic):
 
     # ToDo(kevin): d is currently fixed to 1, could you generalize it to any d belongs to [0, 1]
     '''
-    input_img = cv2.imread(pic)
-    d = float(sys.argv[2])
+    input_img = pic
+    d = distance
     for face in range(4):
         print('generating face', face)
         height = input_img.shape[0]
@@ -71,48 +72,102 @@ def pano2stereo(pic):
         input_img = np.concatenate(
             (input_img[:, int(width/4):, :], input_img[:, :int(width/4), :]), axis=1)
 
-def stereo2pano(pic):
-    input_img = cv2.imread(pic)
+def stereo2pano(in_pic):
+    '''
+    Stereo Projection picture to transform back to panorama
+
+    Args:
+        in_pic(str): the stereo pic you want to transform 
+    
+    Return:
+        output_img(np.array): the pano image
+    '''
+    input_img = in_pic
     d = 1.
     height = input_img.shape[0]
     width = input_img.shape[1]
-    delta_rad = pi / 2
     output_img = np.zeros((height, height, 3))
 
-    xp_domain = np.arange(-1., 1., 2./height) + 1.0/height
-    yp_domain = np.arange(-1., 1., 2./height) + 1.0/height
+    xp_domain = np.arange(-pi/2., pi/2., pi/height) + pi/height
+    yp_domain = np.arange(-pi/2., pi/2., pi/height) + pi/height
 
     # interpolate function for each channel which is provided by scipy
     interpolate_0 = RectBivariateSpline(np.arange(height), np.arange(width), input_img[:, :, 0])
     interpolate_1 = RectBivariateSpline(np.arange(height), np.arange(width), input_img[:, :, 1])
     interpolate_2 = RectBivariateSpline(np.arange(height), np.arange(width), input_img[:, :, 2])
 
-    for j, xp in enumerate(xp_domain):
-        for i, yp in enumerate(yp_domain):
-            alpha = tan(xp*delta_rad)
-            beta = tan(yp*delta_rad)
+    for j, phi in enumerate(xp_domain):
+        for i, theta in enumerate(yp_domain):
 
-            if alpha < 0:
-                stereo_x = width/2.0 + width/4.0 * (-2/alpha - 2*sqrt(1/alpha**2+1))
-            else:
-                stereo_x = width/2.0 + width/4.0 * (-2/alpha + 2*sqrt(1/alpha**2+1))
-            if beta < 0:
-                stereo_y = height/2.0 + height/4.0 * (-2/beta - 2*sqrt(1/beta**2+1))
-            else:
-                stereo_y = height/2.0 + height/4.0 * (-2/beta + 2*sqrt(1/beta**2+1))
+            stereo_x = 2*sin(phi)/(1+cos(phi)) * width/4 + width/2
+            stereo_y = 2*sin(theta)/(1+cos(theta)) * height/4 + height/2
 
             output_img[i, j, 0] = interpolate_0([stereo_y], [stereo_x])
             output_img[i, j, 1] = interpolate_1([stereo_y], [stereo_x])
             output_img[i, j, 2] = interpolate_2([stereo_y], [stereo_x])
 
-    cv2.imwrite('pano'+'.jpg', output_img)
+    return output_img
+
+def realign_bbox(center_x, center_y, width, height, face):
+    xp = 4*(center_x-0.5)
+    phi = atan(4*xp/(4-xp**2))
+    phi = phi + face*pi/2
+    if phi > 2*pi:
+        phi = phi-4*pi
+    center_phi = phi/(2*pi)+0.5
+    
+    yp = 4*(center_y-0.5)
+    theta = atan(4*yp/(4-yp**2))
+    center_theta = theta/pi+0.5
+    
+    def realign_border(center, line):
+        vertex_1 = 4*(center-0.5-line/2)
+        vertex_2 = 4*(center-0.5+line/2)
+        angle_1 = atan(4*vertex_1/(4-vertex_1**2))
+        angle_2 = atan(4*vertex_2/(4-vertex_2**2))
+        return np.absolute(angle_2-angle_1)
+
+    pano_width = realign_border(center_x, width)/(2*pi)
+    pano_height = realign_border(center_y, height)/pi
+
+    return center_phi, center_theta, pano_width, pano_height
+
+def merge_stereo(stereos):
+    print('Merging the projected pictures back...')
+    frame_0 = stereo2pano(stereos[0]) # from -pi/2 ~pi/2
+    print('====First  Picture====')
+    frame_1 = stereo2pano(stereos[1]) # from 0 ~ pi
+    print('====Second Picture====')
+    frame_2 = stereo2pano(stereos[2]) # from pi/2 ~ pi and -pi ~ -pi/2
+    print('====Third  Picture====')
+    frame_3 = stereo2pano(stereos[3]) # from -pi/2 ~ 0
+    print('====Forth  Picture====')
+    stride = int(frame_2.shape[1]/2)
+    
+    pano_1 = np.concatenate([frame_3, frame_1], axis=1)
+    pano_2 = np.concatenate([frame_2[:, stride:, :], frame_0, frame_2[:, :stride, :]], axis=1)
+
+    cv2.imwrite('./merge_pano.jpg', (pano_1 + pano_2)/2)
+
+    return (pano_1 + pano_2)/2
 
 def main():
     '''
     just for testing...
     '''
-    #pano2stereo(sys.argv[1])
-    stereo2pano(sys.argv[1])
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--p2s', help='Path to panorama file.')
+    parser.add_argument('--d', help='Postion of Projection', default=1., type=float)
+    parser.add_argument('--s2p', help='Path to stereo file.')
+    parser.add_argument('--output', help='Path to output file')
+    args = parser.parse_args()
+
+    if (args.p2s):
+        pano = cv2.imread(args.p2s)
+        pano2stereo(pano, args.d)
+    if (args.s2p):
+        stereo = cv2.imread(args.s2p)
+        cv2.imwrite(args.output, stereo2pano(stereo))
 
 if __name__ == '__main__':
     main()

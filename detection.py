@@ -2,11 +2,11 @@ import cv2
 import sys
 import numpy as np
 import os.path
-from stereo import pano2stereo, stereo2pano
+from stereo import pano2stereo, stereo2pano, realign_bbox, merge_stereo
 
 CF_THRESHOLD = 0.5
 NMS_THRESHOLD = 0.4
-INPUT_RESOLUTION = (608, 608)
+INPUT_RESOLUTION = (416, 416)
 
 class yolo():
     '''
@@ -35,6 +35,7 @@ class yolo():
         print('Model Initialization Done!')
 
     def detect(self, frame):
+        print('Yolo Detecting...')
         blob = cv2.dnn.blobFromImage(frame, 1/255, 
             self.resolution, [0, 0, 0], 1, crop=False)
         
@@ -68,6 +69,7 @@ class yolo():
         return frame
 
     def NMS_selection(self, frame, output):
+        print('NMS selecting...')
         frame_height = frame.shape[0]
         frame_width = frame.shape[1]
 
@@ -81,9 +83,9 @@ class yolo():
             classId = np.argmax(scores)
             confidence = scores[classId]
             if confidence > CF_THRESHOLD:
-                center_x = int(detection[0] * frame_width/2)
+                center_x = int(detection[0] * frame_width)
                 center_y = int(detection[1] * frame_height)
-                width = int(detection[2] * frame_width/2)
+                width = int(detection[2] * frame_width)
                 height = int(detection[3] * frame_height)
                 left = int(center_x - width / 2)
                 top = int(center_y - height / 2)
@@ -97,27 +99,28 @@ class yolo():
 
         return classIds, confidences, boxes, indices
 
-    def process_output(self, frame_0, frame_1, frame_2, frame_3):
-        height = frame_0.shape[0]
-        width = frame_0.shape[1]
+    def process_output(self, frames):
+        height = frames[0].shape[0]
+        width = frames[0].shape[1]
+        first_flag = True
+        outputs = None
 
-        output_0 = self.detect(frame_0)
-        for i in range(output_0.shape[0]):
-            output_0[i, 0] += 1/2
-        output_1 = self.detect(frame_1)
-        for i in range(output_1.shape[0]):
-            output_1[i, 0] += 1
-        output_2 = self.detect(frame_2)
-        for i in range(output_2.shape[0]):
-            output_2[i, 0] += 3/2
-        output_3 = self.detect(frame_3)
+        for face, frame in enumerate(frames):
+            output = self.detect(frame)
+            for i in range(output.shape[0]):
+                output[i, 0], output[i, 1], output[i, 2], output[i, 3]=\
+                realign_bbox(output[i, 0], output[i, 1], output[i, 2], output[i, 3], face)
+            if not first_flag:
+                outputs = np.concatenate([outputs, output], axis=0)
+            else:
+                outputs = output
+                first_flag = False
 
-        output = np.concatenate((output_0, output_1, output_2, output_3), axis=0)
-        output[output > 2] -= 2
-
+        #output_frame = merge_stereo(frames)
+        output_frame = cv2.imread('./merge_pano.jpg')
         # need to inverse preoject
-        output_frame = np.concatenate([frame_3, frame_1], axis=1)
-        classIds, confidences, boxes, indices = self.NMS_selection(output_frame, output)
+        classIds, confidences, boxes, indices = self.NMS_selection(output_frame, outputs)
+        print('Painting Bounding Boxes..')
         for i in indices:
             i = i[0]
             box = boxes[i]
@@ -133,10 +136,11 @@ class yolo():
 
 if __name__ == '__main__':
     myNet = yolo()
-    frame_0 = cv2.imread('./projection example/face_0.jpg')
-    frame_1 = cv2.imread('./projection example/face_1.jpg')
-    frame_2 = cv2.imread('./projection example/face_2.jpg')
-    frame_3 = cv2.imread('./projection example/face_3.jpg')
+    frame_0 = cv2.imread('./projection example/face_0_1.0.jpg')
+    frame_1 = cv2.imread('./projection example/face_1_1.0.jpg')
+    frame_2 = cv2.imread('./projection example/face_2_1.0.jpg')
+    frame_3 = cv2.imread('./projection example/face_3_1.0.jpg')
+    projections = [frame_0, frame_1, frame_2, frame_3]
 
-    output_frame = myNet.process_output(frame_0, frame_1, frame_2, frame_3)
+    output_frame = myNet.process_output(projections)
     cv2.imwrite('./result.jpg', output_frame)
