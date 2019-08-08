@@ -14,18 +14,31 @@ import cv2
 
 
 def projection_angle(x, d):
+    """
+    The function is the inversion of eq(1)in W. Yang's m-p YOLO paper.
+    In the case of d=1:
+    phi = atan(4*xp/(4-xp**2)) if xp != xp_max else np.pi/2
+    theta = atan(4*yp/(4-yp**2)) if yp != yp_max else np.pi/2
+
+    Args:
+        x: the symbol xp or yp in eq(1) of W. Yang's m-p YOLO paper.
+        d: the de-center from the center of a sphere in W. Yang's m-p YOLO paper.
+    Return:
+        project_angle: theta or phi in eq(1) of W. Yang's m-p YOLO paper.
+
+    """
     x_max = (1 + d) / d
     numerator = -2 * d * x ** 2 + 2 * (d + 1) * sqrt((1 - d ** 2) * x ** 2 + (d + 1) ** 2)
     denominator = 2 * (x ** 2 + (d + 1) ** 2)
     if 0 < x < x_max:
-        proj_angle = acos(numerator / denominator)
+        project_angle = acos(numerator / denominator)
     elif x < 0:
-        proj_angle = - acos(numerator / denominator)
+        project_angle = - acos(numerator / denominator)
     elif x == x_max:
-        proj_angle = pi/2.
+        project_angle = pi/2.
     else:
         raise Exception('invalid input args')
-    return proj_angle
+    return project_angle
 
 def pano2stereo(pic, distance):
     '''
@@ -57,9 +70,6 @@ def pano2stereo(pic, distance):
         pano_y = np.zeros((height, 1))
 
         # longitude (phi) and latitude (theta) is the angular information from center of the sphere
-        # below formula is the inversion of eq(1)in Wenyan Yang's m-p YOLO paper.
-        # In the case of d=1: phi = atan(4*xp/(4-xp**2)) if xp != xp_max else np.pi/2
-        # theta = atan(4*yp/(4-yp**2)) if yp != yp_max else np.pi/2
         for j, xp in enumerate(xp_domain):
             phi = projection_angle(xp, d)
             pano_x[j] = (width / 2.0 + (phi / delta_rad))
