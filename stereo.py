@@ -6,12 +6,26 @@ Usage:
     file_path(str): the pano pic file
     d(float)      : d in (0..1.]
 '''
-import sys
 import argparse
 from math import pi, atan, cos, sin, acos, sqrt, tan
 from scipy.interpolate import RectBivariateSpline
 import numpy as np
 import cv2
+
+
+def projection_angle(x, d):
+    x_max = (1 + d) / d
+    numerator = -2 * d * x ** 2 + 2 * (d + 1) * sqrt((1 - d ** 2) * x ** 2 + (d + 1) ** 2)
+    denominator = 2 * (x ** 2 + (d + 1) ** 2)
+    if 0 < x < x_max:
+        proj_angle = acos(numerator / denominator)
+    elif x < 0:
+        proj_angle = - acos(numerator / denominator)
+    elif x == x_max:
+        proj_angle = pi/2.
+    else:
+        raise Exception('invalid input args')
+    return proj_angle
 
 def pano2stereo(pic, distance):
     '''
@@ -20,52 +34,43 @@ def pano2stereo(pic, distance):
     Each pic represents different projection face.
 
     Args:
-        pic(str): the path of input picture
+        pic: input panorama picture
 
-    # ToDo(kevin): d is currently fixed to 1, could you generalize it to any d belongs to [0, 1]
     '''
     input_img = pic
+    height, width, _ = input_img.shape
     d = distance
+    xp_max = (1 + d) / d  # in the case of d=1, it is 2
+    yp_max = (1 + d) / d  # in the case of d=1, it is 2
+    xp_domain = xp_max * (np.arange(-1., 1., 2. / height) + 1.0 / height)
+    yp_domain = yp_max * (np.arange(-1., 1., 2. / height) + 1.0 / height)
+    delta_rad = 2 * pi / width  # get the rads of each pixel
+
     for face in range(4):
         print('generating face', face)
-        height = input_img.shape[0]
-        width = input_img.shape[1]
-        delta_rad = 2*pi / width  # get the rads of each pixel
         output_img = np.zeros((height, height, 3))
-        xp_max = (1+d) / d  # in the case of d=1, it is 2
-        yp_max = (1+d) / d  # in the case of d=1, it is 2
-        xp_domain = xp_max*(np.arange(-1., 1., 2./height) + 1.0/height)
-        yp_domain = yp_max*(np.arange(-1., 1., 2./height) + 1.0/height)
-
         # interpolate function for each channel which is provided by scipy
         interpolate_0 = RectBivariateSpline(np.arange(height), np.arange(width), input_img[:, :, 0])
         interpolate_1 = RectBivariateSpline(np.arange(height), np.arange(width), input_img[:, :, 1])
         interpolate_2 = RectBivariateSpline(np.arange(height), np.arange(width), input_img[:, :, 2])
+        pano_x = np.zeros((height, 1))
+        pano_y = np.zeros((height, 1))
 
+        # longitude (phi) and latitude (theta) is the angular information from center of the sphere
+        # below formula is the inversion of eq(1)in Wenyan Yang's m-p YOLO paper.
+        # In the case of d=1: phi = atan(4*xp/(4-xp**2)) if xp != xp_max else np.pi/2
+        # theta = atan(4*yp/(4-yp**2)) if yp != yp_max else np.pi/2
         for j, xp in enumerate(xp_domain):
-            for i, yp in enumerate(yp_domain):
-                # longitude (phi) and latitude (theta) is the angular information from center of the sphere
-                # below formula is the inversion of eq(1) at d=1 in Wenyan Yang's m-p YOLO paper.
-                # ToDo(kevin): d is currently fixed to 1, could you generalize it to any d belongs to [0, 1]
-                # phi = atan(4*xp/(4-xp**2)) if xp != xp_max else np.pi/2
-                # theta = atan(4*yp/(4-yp**2)) if yp != yp_max else np.pi/2
-                def projection_angle(x, d):
-                    numerator = -2*d*x**2 + 2*(d+1)*sqrt((1-d**2)*x**2+(d+1)**2)
-                    denominator = 2*(x**2+(d+1)**2)
-                    return acos(numerator/denominator)
-                phi = projection_angle(xp, d) if xp != xp_max else pi/2
-                if xp < 0:
-                    phi = -1*phi
-                theta = projection_angle(yp, d) if yp != yp_max else pi/2
-                if yp < 0:
-                    theta = -1*theta
+            phi = projection_angle(xp, d)
+            pano_x[j] = (width / 2.0 + (phi / delta_rad))
 
-                pano_x = width/2.0 + (phi/delta_rad)
-                pano_y = height/2.0 + (theta/delta_rad)
+        for i, yp in enumerate(yp_domain):
+            theta = projection_angle(yp, d)
+            pano_y[i] = height/2.0 + (theta/delta_rad)
 
-                output_img[i, j, 0] = interpolate_0([pano_y], [pano_x])
-                output_img[i, j, 1] = interpolate_1([pano_y], [pano_x])
-                output_img[i, j, 2] = interpolate_2([pano_y], [pano_x])
+        output_img[:, :, 0] = interpolate_0(pano_y, pano_x)
+        output_img[:, :, 1] = interpolate_1(pano_y, pano_x)
+        output_img[:, :, 2] = interpolate_2(pano_y, pano_x)
 
         cv2.imwrite('face_'+str(face)+'_'+str(d)+'.jpg', output_img)
         # change the projection face for the origin panorama
@@ -77,10 +82,11 @@ def stereo2pano(in_pic):
     Stereo Projection picture to transform back to panorama
 
     Args:
-        in_pic(str): the stereo pic you want to transform 
+        in_pic: the stereo pic you want to transform
     
     Return:
         output_img(np.array): the pano image
+    ToDo(Kevin): refactoring the module as pano2stereo for speed-up
     '''
     input_img = in_pic
     d = 1.
@@ -159,7 +165,7 @@ def main():
     parser.add_argument('--p2s', help='Path to panorama file.')
     parser.add_argument('--d', help='Postion of Projection', default=1., type=float)
     parser.add_argument('--s2p', help='Path to stereo file.')
-    parser.add_argument('--output', help='Path to output file')
+    parser.add_argument('--output', help='Path to output file') # ToDo(kevin): set a default
     args = parser.parse_args()
 
     if (args.p2s):
