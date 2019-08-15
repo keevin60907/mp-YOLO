@@ -95,7 +95,6 @@ def stereo2pano(in_pic):
     
     Return:
         output_img(np.array): the pano image
-    ToDo(Kevin): refactoring the module as pano2stereo for speed-up
     '''
     input_img = in_pic
     d = 1.
