@@ -2,7 +2,7 @@
 The reproduce result for 'Object Detection in Equirectangular Panorama'
 
 # Usage
-$python3 detection <pano_picture> <result_picture>
+$ python3 detection <pano_picture> <result_picture>
 
 pano_picture is the file path of the panorama picture you want to detect.
 
