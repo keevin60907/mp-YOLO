@@ -1,14 +1,21 @@
-import cv2
+'''
+Object Detection on Panorama pictures
+Usage:
+    $ pyhton3 detection.py <pano_picture> <output_picture>
+
+    pano_picture(str)  : the pano pic file
+    output_picture(str): the result picture
+'''
 import sys
+import cv2
 import numpy as np
-import os.path
-from stereo import pano2stereo, stereo2pano, realign_bbox, merge_stereo
+from stereo import pano2stereo, realign_bbox
 
 CF_THRESHOLD = 0.5
 NMS_THRESHOLD = 0.4
 INPUT_RESOLUTION = (416, 416)
 
-class yolo():
+class Yolo():
     '''
     Packed yolo Netwrok from cv2
     '''
@@ -20,8 +27,8 @@ class yolo():
         # define classes
         self.classes = None
         class_file = 'coco.names'
-        with open(class_file, 'rt') as f:
-            self.classes = f.read().rstrip('\n').split('\n')
+        with open(class_file, 'rt') as file:
+            self.classes = file.read().rstrip('\n').split('\n')
 
         net = cv2.dnn.readNetFromDarknet(
             model_configuration, model_weight)
@@ -29,59 +36,100 @@ class yolo():
         net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
         self.yolo = net
 
-        self.cf_th = CF_THRESHOLD = 0.5
-        self.nms_th = NMS_THRESHOLD = 0.4
+        self.cf_th = CF_THRESHOLD
+        self.nms_th = NMS_THRESHOLD
         self.resolution = INPUT_RESOLUTION
         print('Model Initialization Done!')
 
     def detect(self, frame):
-        print('Yolo Detecting...')
-        blob = cv2.dnn.blobFromImage(frame, 1/255, 
-            self.resolution, [0, 0, 0], 1, crop=False)
-        
+        '''
+        The yolo function which is provided by opencv
+
+        Args:
+            frames(np.array): input picture for object detection
+
+        Returns:
+            ret(np.array): all possible boxes with dim = (N, classes+5)
+        '''
+        blob = cv2.dnn.blobFromImage(np.float32(frame), 1/255, self.resolution,
+                                     [0, 0, 0], 1, crop=False)
+
         self.yolo.setInput(blob)
         layers_names = self.yolo.getLayerNames()
         output_layer =\
             [layers_names[i[0] - 1] for i in self.yolo.getUnconnectedOutLayers()]
         outputs = self.yolo.forward(output_layer)
-        
+
         ret = np.zeros((1, len(self.classes)+5))
         for out in outputs:
             ret = np.concatenate((ret, out), axis=0)
         return ret
 
-    def drawPred(self, frame, classId, conf, left, top, right, bottom):
+    def draw_bbox(self, frame, class_id, conf, left, top, right, bottom):
+        '''
+        Drew a Bounding Box
+
+        Args:
+            frame(np.array): the base image for painting box on
+            class_id(int)  : id of the object
+            conf(float)    : confidential score for the object
+            left(int)      : the left pixel for the box
+            top(int)       : the top pixel for the box
+            right(int)     : the right pixel for the box
+            bottom(int)    : the bottom pixel for the box
+
+        Return:
+            frame(np.array): the image with bounding box on it
+        '''
         # Draw a bounding box.
         cv2.rectangle(frame, (left, top), (right, bottom), (255, 178, 50), 3)
-    
+
         label = '%.2f' % conf
-        
+
         # Get the label for the class name and its confidence
         if self.classes:
-            assert(classId < len(self.classes))
-            label = '%s:%s' % (self.classes[classId], label)
+            assert(class_id < len(self.classes))
+            label = '%s:%s' % (self.classes[class_id], label)
 
         #Display the label at the top of the bounding box
-        labelSize, baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 2, 1)
-        top = max(top, labelSize[1])
-        cv2.rectangle(frame, (left, top - round(1.5*labelSize[1])), (left + round(1.5*labelSize[0]), top + baseLine), (255, 255, 255), cv2.FILLED)
-        cv2.putText(frame, label, (left, top), cv2.FONT_HERSHEY_SIMPLEX, 2, (0,0,0), 2)
+        label_size, base_line = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 2, 1)
+        top = max(top, label_size[1])
+        cv2.rectangle(frame,
+                      (left, top - round(1.5*label_size[1])),
+                      (left + round(label_size[0]), top + base_line),
+                      (255, 255, 255), cv2.FILLED)
+        cv2.putText(frame, label, (left, top), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 2)
         return frame
 
-    def NMS_selection(self, frame, output):
+    def nms_selection(self, frame, output):
+        '''
+        Packing the openCV Non-Maximum Suppression Selection Algorthim
+
+        Args:
+            frame(np.array) : the input image for getting the size
+            output(np.array): scores from yolo, and transform into confidence and class
+
+        Returns:
+            class_ids (list)  : the list of class id for the output from yolo
+            confidences (list): the list of confidence for the output from yolo
+            boxes (list)      : the list of box coordinate for the output from yolo
+            indices (list)    : the list of box after NMS selection
+
+        '''
         print('NMS selecting...')
         frame_height = frame.shape[0]
         frame_width = frame.shape[1]
 
         # Scan through all the bounding boxes output from the network and keep only the
-        # ones with high confidence scores. Assign the box's class label as the class with the highest score.
-        classIds = []
+        # ones with high confidence scores. Assign the box's class label as the class
+        # with the highest score.
+        class_ids = []
         confidences = []
         boxes = []
         for detection in output:
             scores = detection[5:]
-            classId = np.argmax(scores)
-            confidence = scores[classId]
+            class_id = np.argmax(scores)
+            confidence = scores[class_id]
             if confidence > CF_THRESHOLD:
                 center_x = int(detection[0] * frame_width)
                 center_y = int(detection[1] * frame_height)
@@ -89,7 +137,7 @@ class yolo():
                 height = int(detection[3] * frame_height)
                 left = int(center_x - width / 2)
                 top = int(center_y - height / 2)
-                classIds.append(classId)
+                class_ids.append(class_id)
                 confidences.append(float(confidence))
                 boxes.append([left, top, width, height])
 
@@ -97,18 +145,30 @@ class yolo():
         # lower confidences.
         indices = cv2.dnn.NMSBoxes(boxes, confidences, CF_THRESHOLD, NMS_THRESHOLD)
 
-        return classIds, confidences, boxes, indices
+        return class_ids, confidences, boxes, indices
 
-    def process_output(self, frames):
+    def process_output(self, input_img, frames):
+        '''
+        Main progress in the class.
+        Detecting the pics >> Calculate Re-align BBox >> NMS selection >> Draw BBox
+
+        Args:
+            input_img(np.array): the original pano image
+            frames(list)       : the results from pan2stereo, the list contain four spects of view
+
+        Returns:
+            base_frame(np.array): the input pano image with BBoxes
+        '''
         height = frames[0].shape[0]
         width = frames[0].shape[1]
         first_flag = True
         outputs = None
 
+        print('Yolo Detecting...')
         for face, frame in enumerate(frames):
             output = self.detect(frame)
             for i in range(output.shape[0]):
-                output[i, 0], output[i, 1], output[i, 2], output[i, 3]=\
+                output[i, 0], output[i, 1], output[i, 2], output[i, 3] =\
                 realign_bbox(output[i, 0], output[i, 1], output[i, 2], output[i, 3], face)
             if not first_flag:
                 outputs = np.concatenate([outputs, output], axis=0)
@@ -116,10 +176,9 @@ class yolo():
                 outputs = output
                 first_flag = False
 
-        #output_frame = merge_stereo(frames)
-        output_frame = cv2.imread('./merge_pano.jpg')
+        base_frame = input_img
         # need to inverse preoject
-        classIds, confidences, boxes, indices = self.NMS_selection(output_frame, outputs)
+        class_ids, confidences, boxes, indices = self.nms_selection(base_frame, outputs)
         print('Painting Bounding Boxes..')
         for i in indices:
             i = i[0]
@@ -128,19 +187,22 @@ class yolo():
             top = box[1]
             width = box[2]
             height = box[3]
-            self.drawPred(output_frame, classIds[i], confidences[i], left, top, left + width, top + height)
+            self.draw_bbox(base_frame, class_ids[i], confidences[i],
+                           left, top, left + width, top + height)
 
-        return output_frame
+        return base_frame
 
+def main():
+    '''
+    For testing now..
+    '''
+    my_net = Yolo()
 
+    input_pano = cv2.imread(sys.argv[1])
+    projections = pano2stereo(input_pano)
+
+    output_frame = my_net.process_output(input_pano, projections)
+    cv2.imwrite(sys.argv[2], output_frame)
 
 if __name__ == '__main__':
-    myNet = yolo()
-    frame_0 = cv2.imread('./projection example/face_0_1.0.jpg')
-    frame_1 = cv2.imread('./projection example/face_1_1.0.jpg')
-    frame_2 = cv2.imread('./projection example/face_2_1.0.jpg')
-    frame_3 = cv2.imread('./projection example/face_3_1.0.jpg')
-    projections = [frame_0, frame_1, frame_2, frame_3]
-
-    output_frame = myNet.process_output(projections)
-    cv2.imwrite('./result.jpg', output_frame)
+    main()

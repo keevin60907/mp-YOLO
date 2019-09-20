@@ -8,6 +8,7 @@ Usage:
 '''
 import argparse
 from math import pi, atan, cos, sin, acos, sqrt, tan
+import sys
 from scipy.interpolate import RectBivariateSpline
 import numpy as np
 import cv2
@@ -19,13 +20,11 @@ def projection_angle(x, d):
     In the case of d=1:
     phi = atan(4*xp/(4-xp**2)) if xp != xp_max else np.pi/2
     theta = atan(4*yp/(4-yp**2)) if yp != yp_max else np.pi/2
-
     Args:
         x: the symbol xp or yp in eq(1) of W. Yang's m-p YOLO paper.
         d: the de-center from the center of a sphere in W. Yang's m-p YOLO paper.
     Return:
         project_angle: theta or phi in eq(1) of W. Yang's m-p YOLO paper.
-
     """
     x_max = (1 + d) / d
     numerator = -2 * d * x ** 2 + 2 * (d + 1) * sqrt((1 - d ** 2) * x ** 2 + (d + 1) ** 2)
@@ -40,16 +39,16 @@ def projection_angle(x, d):
         raise Exception('invalid input args')
     return project_angle
 
-def pano2stereo(pic, distance):
+def pano2stereo(pic, distance=1.):
     '''
     The main function for panorama picture transfrom to stereo projection,
     and save the transformed pic as 'face_0.jpg', 'face_1.jpg', 'face_2.jpg', 'face_3.jpg'.
     Each pic represents different projection face.
-
     Args:
         pic: input panorama picture
     ToDo(chienhung): need to fix the equation for d=0 (paper formula is not correct)
     '''
+    frames = []
     input_img = pic
     height, width, _ = input_img.shape
     d = distance
@@ -85,20 +84,20 @@ def pano2stereo(pic, distance):
             output_img[:, j, 2] = interpolate_2(pano_y, px).flatten()
 
         cv2.imwrite('face_'+str(face)+'_'+str(d)+'.jpg', output_img)
+        frames.append(output_img)
         # change the projection face for the origin panorama
         input_img = np.concatenate(
             (input_img[:, int(width/4):, :], input_img[:, :int(width/4), :]), axis=1)
+    return frames
 
 def stereo2pano(in_pic):
     '''
     Stereo Projection picture to transform back to panorama
-
     Args:
         in_pic: the stereo pic you want to transform
     
     Return:
         output_img(np.array): the pano image
-    ToDo(Kevin): refactoring the module as pano2stereo for speed-up
     '''
     input_img = in_pic
     d = 1.
@@ -127,22 +126,27 @@ def stereo2pano(in_pic):
     return output_img
 
 def realign_bbox(center_x, center_y, width, height, face):
+    def safe_atan(x):
+        if x == 2: return pi/2
+        elif x == -2: return -pi/2
+        else: return atan(4*x/(4-x**2))
+
     xp = 4*(center_x-0.5)
-    phi = atan(4*xp/(4-xp**2))
+    phi = safe_atan(xp)
     phi = phi + face*pi/2
     if phi > 2*pi:
         phi = phi-4*pi
     center_phi = phi/(2*pi)+0.5
     
     yp = 4*(center_y-0.5)
-    theta = atan(4*yp/(4-yp**2))
+    theta = safe_atan(yp)
     center_theta = theta/pi+0.5
     
     def realign_border(center, line):
         vertex_1 = 4*(center-0.5-line/2)
         vertex_2 = 4*(center-0.5+line/2)
-        angle_1 = atan(4*vertex_1/(4-vertex_1**2))
-        angle_2 = atan(4*vertex_2/(4-vertex_2**2))
+        angle_1 = safe_atan(vertex_1)
+        angle_2 = safe_atan(vertex_2)
         return np.absolute(angle_2-angle_1)
 
     pano_width = realign_border(center_x, width)/(2*pi)
