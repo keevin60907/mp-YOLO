@@ -48,7 +48,7 @@ def pano2stereo(pic, distance):
 
     Args:
         pic: input panorama picture
-
+    ToDo(chienhung): need to fix the equation for d=0 (paper formula is not correct)
     '''
     input_img = pic
     height, width, _ = input_img.shape
@@ -78,9 +78,11 @@ def pano2stereo(pic, distance):
             theta = projection_angle(yp, d)
             pano_y[i] = height/2.0 + (theta/delta_rad)
 
-        output_img[:, :, 0] = interpolate_0(pano_y, pano_x)
-        output_img[:, :, 1] = interpolate_1(pano_y, pano_x)
-        output_img[:, :, 2] = interpolate_2(pano_y, pano_x)
+        # W. Yang's m-p YOLO paper eq(1) might be wrong, x, y is not seperable at least for d=0
+        for j, px in enumerate(pano_x):
+            output_img[:, j, 0] = interpolate_0(pano_y, px).flatten()
+            output_img[:, j, 1] = interpolate_1(pano_y, px).flatten()
+            output_img[:, j, 2] = interpolate_2(pano_y, px).flatten()
 
         cv2.imwrite('face_'+str(face)+'_'+str(d)+'.jpg', output_img)
         # change the projection face for the origin panorama
@@ -175,7 +177,7 @@ def main():
     parser.add_argument('--p2s', help='Path to panorama file.')
     parser.add_argument('--d', help='Postion of Projection', default=1., type=float)
     parser.add_argument('--s2p', help='Path to stereo file.')
-    parser.add_argument('--output', help='Path to output file') # ToDo(kevin): set a default
+    parser.add_argument('--output', help='Path to output file')  # ToDo(kevin): set a default
     args = parser.parse_args()
 
     if (args.p2s):
