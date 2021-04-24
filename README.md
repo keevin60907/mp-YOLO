@@ -13,3 +13,6 @@ The program is based on 'Object Detection in Equirectangular Panorama'(2018 ICPR
 
 # Environmet
 Opencv >= 3.4
+
+# License
+This repository is released under the MIT License (refer to the LICENSE file for details).
