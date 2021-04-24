@@ -123,6 +123,8 @@ def stereo2pano(in_pic):
     return output_img
 
 def realign_bbox(center_x, center_y, width, height, face):
+    if face == 3:
+        face = -1
     def safe_atan(x):
         if x == 2: return pi/2
         elif x == -2: return -pi/2
